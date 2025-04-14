@@ -1,15 +1,24 @@
 {
-	"name": "hottospot-backend-ex",
-	"scripts": {
-		"dev": "wrangler dev",
-		"deploy": "wrangler deploy --minify",
-		"cf-typegen": "wrangler types --env-interface CloudflareBindings"
-	},
-	"dependencies": {
-		"hono": "^4.7.5"
-	},
-	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250413.0",
-		"wrangler": "^4.10.0"
-	}
+  "name": "hottospot-backend-ex",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "db:apply:local": "pnpm wrangler d1 migrations apply hottospot_database --local",
+    "db:apply:remote": "pnpm wrangler d1 migrations apply hottospot_database --remote"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@prisma/adapter-d1": "^6.6.0",
+    "@prisma/client": "^6.6.0",
+    "dotenv": "^16.5.0",
+    "hono": "^4.7.5",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250413.0",
+    "@types/node": "^22.14.1",
+    "prisma": "^6.6.0",
+    "wrangler": "^4.10.0"
+  }
 }

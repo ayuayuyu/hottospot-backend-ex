@@ -7,13 +7,21 @@
 	"name": "hottospot-backend-ex",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-04-13",
+	"compatibility_flags": ["nodejs_compat"],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": "./public"
 	},
 	"observability": {
 		"enabled": true
-	}
+	},
+	"d1_databases": [
+		{
+		  "binding": "DB",
+		  "database_name": "hottospot_database",
+		  "database_id": "70d0723b-6387-4716-8e95-24687dd5d942"
+		}
+	  ]
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
