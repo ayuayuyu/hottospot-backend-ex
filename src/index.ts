@@ -330,7 +330,7 @@ app.get('api/google/photo', async (c) => {
     await prisma.place.update({
       where: { id },
       data: {
-        photo_name: photoUrl ?? 'null',
+        photoName: photoUrl ?? 'null',
       },
     });
     console.log(`${query},
