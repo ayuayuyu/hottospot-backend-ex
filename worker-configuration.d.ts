@@ -4,7 +4,6 @@ declare namespace Cloudflare {
   interface Env {
     DB: D1Database;
     ASSETS: Fetcher;
-    TIKTOK_URL: string;
   }
 }
 interface Env extends Cloudflare.Env {}

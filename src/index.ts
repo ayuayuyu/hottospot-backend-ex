@@ -7,14 +7,16 @@ import fetch from 'node-fetch';
 import 'dotenv/config';
 
 const app = new Hono<{ Bindings: Env }>();
-const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY ?? '';
-const ai = new GoogleGenerativeAI(apiKey);
+const geminiApiKey = process.env.GOOGLE_API_KEY ?? '';
+const ai = new GoogleGenerativeAI(geminiApiKey);
+const mapApiKey = process.env.GOOGLE_MAP_API_KEY ?? '';
+const tiktokApiKey = process.env.TIKTOK_URL ?? '';
 
 app.use(
   '*',
   cors({
     origin: '*', // 必要に応じて制限可能
-    allowMethods: ['GET', 'POST', 'DELETE'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
   }),
 );
 
@@ -26,14 +28,14 @@ app.get('/test', async (c) => {
 
   const place = await prisma.place.create({
     data: {
-      title: 'title',
+      tiktokTitle: 'title',
     },
   });
 
   return c.json(place);
 });
 
-app.post('/sync/tiktok', async (c) => {
+app.post('/api/tiktok', async (c) => {
   interface Tiktok {
     title: string;
     url: string;
@@ -51,14 +53,14 @@ app.post('/sync/tiktok', async (c) => {
   const prisma = new PrismaClient({ adapter });
 
   for (const key of keywords) {
-    const url = `${c.env.TIKTOK_URL}/get?q=${key}`;
+    const url = `${tiktokApiKey}/get?q=${key}`;
     const response = await fetch(url);
     const body = (await response.json()) as Tiktok[];
 
     for (const tiktok of body) {
       const place = await prisma.place.create({
         data: {
-          title: tiktok.title,
+          tiktokTitle: tiktok.title,
           likes: tiktok.likes,
           views: tiktok.views,
           userName: tiktok.userName,
@@ -84,65 +86,138 @@ app.delete('/del', async (c) => {
 
   return c.json(place);
 });
+
 app.get('/get', async (c) => {
   const adapter = new PrismaD1(c.env.DB);
   const prisma = new PrismaClient({ adapter });
 
   const place = await prisma.place.findMany();
+  console.log(place);
 
   return c.json(place);
 });
 
-app.post('/chat', async (c) => {
+app.put('/api/google/gemini', async (c) => {
   try {
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const adapter = new PrismaD1(c.env.DB);
+    const prisma = new PrismaClient({ adapter });
 
-    // const chat = model.startChat({
+    const allResults: any[] = [];
+    const chat = model.startChat({});
+    const places = await prisma.place.findMany();
 
-    //   generationConfig: {
-    //     maxOutputTokens: 100,
-    //   },
-    // });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    const { chatHistory, msg } = await c.req.json();
-    console.log('chatHistory', chatHistory);
-    console.log('msg', msg);
+    for (const place of places) {
+      let id = place.id;
+      console.log(`id: ${id}`);
+      const prompt = `
+        「Title: ${place.tiktokTitle}
+        User: ${place.userName}
+        Likes: ${place.likes}, views:${place.views}
+        Tags: ${JSON.parse(place.tags || '[]')}
+        URL: ${place.url}」
 
-    const chat = model.startChat({
-      history: chatHistory,
-    });
-    //prismaを使ってdbから値を持ってきてプロンプトする予定
-    //まずは動かせるかの確認してから↑をやって
+        この投稿は場所の詳細が曖昧な可能性がありますが、分かる範囲で「place（場所）」「explanation（料理や雰囲気の説明）」を推測して返してください。
+        もしわからない場合は "不明"としてください
 
-    const prompt = `
-    「Title: 尾道に行ってきましたー！ #絶景 #自然 #旅行  #nature #japantravel 
-User: @yuki_travel
-Likes: 261700, Plays: 6800000
-Tags: ['絶景', '自然', '旅行', 'nature', 'japantravel']
-URL: https://m.tiktok.com/v/7381023303550373121」
+        ここで示した場所を以下のjsonschemaの形式で返答してください:
+        \`\`\`jsonschema
+        {
+            "place": "場所名",
+            "title": "店舗名",
+            "explanation": "場所の説明"
+        }
+        \`\`\`
+        `;
 
-ここで示した場所を次の形式で返答してください:
-  \`\`\`jsonschema
-  {
-    "area":"地名”,
-    "located
-  }
-  \`\`\`
-    `;
+      const result = await chat.sendMessage(prompt);
+      const text: string = result.response.text();
+      console.log(text);
 
-    const msgWithPrompt = `${prompt}\n${msg}`;
+      // JSON部分を抽出する正規表現
+      const match = text.match(/```(?:json|jsonschema)?\s*([\s\S]*?)\s*```/);
 
-    console.log('msg', msg);
-    const result = await chat.sendMessage(msgWithPrompt);
-    const response = await result.response;
-    const text = response.text();
+      let parsed;
+      if (match && match[1]) {
+        try {
+          parsed = JSON.parse(match[1]);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          return c.json(
+            { error: 'Invalid JSON format in Gemini response' },
+            400,
+          );
+        }
+      } else {
+        console.warn('No JSON block found, fallback to raw parse');
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          console.error('Fallback JSON parse error:', e);
+          return c.json({ error: 'Could not parse response as JSON' }, 400);
+        }
+      }
 
-    console.log('text', text);
-    return c.json({ text });
+      console.log(`parsed: ${JSON.stringify(parsed)}`);
+      console.log(`title: ${parsed.title}`);
+      console.log(`place: ${parsed.place}`);
+
+      await prisma.place.update({
+        where: { id },
+        data: {
+          place: parsed.place ?? 'null',
+          title: parsed.title ?? 'null',
+          explanation: parsed.explanation ?? 'null',
+        },
+      });
+
+      await sleep(4600); // wait for 4.6 seconds
+    }
+
+    return c.json({ allResults });
   } catch (error) {
     console.error('Error:', error);
     return c.json({ error: 'An error occurred' }, 500);
   }
+});
+
+app.put('/api/google/locations', async (c) => {
+  const adapter = new PrismaD1(c.env.DB);
+  const prisma = new PrismaClient({ adapter });
+  const places = await prisma.place.findMany();
+
+  const allResults: any[] = [];
+  for (const place of places) {
+    const response = await fetch(
+      'https://places.googleapis.com/v1/places:searchText',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': mapApiKey,
+          'X-Goog-FieldMask':
+            'places.displayName,places.formattedAddress,places.priceLevel,places.location,places.photos,places.editorialSummary',
+        },
+        body: JSON.stringify({
+          textQuery: `${place.title} ${place.place}`,
+        }),
+      },
+    );
+
+    const data = await response.json();
+    console.log(`location: ${data.places[0].location}`);
+    const lat = data.places[0].location.latitude;
+    const lon = data.places[0].location.longitude;
+    console.log(`address: ${data.places[0].formattedAddress}`);
+    console.log(`lat: ${lat} lon : ${lon}`);
+    // const datas = JSON.stringify(data);
+    // console.log(typeof datas);
+
+    allResults.push(data);
+  }
+  return c.json({ allResults });
 });
 
 export default app;

@@ -17,20 +17,22 @@ datasource db {
 
 model Place {
   id          Int      @id @default(autoincrement())
-  title       String?
+  tiktokTitle String? // TikTok動画のタイトル
   likes       Int?
   views       Int?
-  userName    String?  @map("user_name")
-  tags        String?
+  userName    String?
+  tags        String? // JSON形式の文字列
   url         String?
-  address     String?
-  explanation String?
+  place       String? // Geminiで推測された「場所名」
+  title       String? // Geminiで推測された「店舗名」
+  explanation String? // Geminiで推測された「説明」
   latitude    Float?
   longitude   Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  address     String?
   photoName   String?  @map("photo_name")
   scale       Int?
-  createdAt   DateTime @default(dbgenerated("(datetime('now'))")) @map("created_at")
-  updatedAt   DateTime @default(dbgenerated("(datetime('now'))")) @map("updated_at")
 
   @@map("places")
 }
