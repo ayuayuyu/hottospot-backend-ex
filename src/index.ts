@@ -273,13 +273,72 @@ app.put('/api/google/locations', async (c) => {
         `Skipping update for ID ${id} due to missing or invalid places data`,
       );
     }
-
-    // const datas = JSON.stringify(data);
-    // console.log(typeof datas);
-
     allResults.push(data);
   }
   return c.json({ allResults });
+});
+
+app.get('api/google/photo', async (c) => {
+  const adapter = new PrismaD1(c.env.DB);
+  const prisma = new PrismaClient({ adapter });
+  const places = await prisma.place.findMany();
+
+  for (const place of places) {
+    let id = place.id;
+    if (place.title == '不明' && place.place == '不明') {
+      console.log(`Skipping place ID ${id} due to missing title or place`);
+      continue;
+    }
+
+    if (
+      !place.title ||
+      !place.place ||
+      place.title == 'null' ||
+      place.place == 'null'
+    ) {
+      console.log(`Skipping place ID ${id} due to missing title or place`);
+      continue;
+    }
+    const query = `${place.place} ${place.title}`;
+    // Place ID 取得
+    const placeIdRes = await fetch(
+      `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(
+        query,
+      )}&inputtype=textquery&fields=place_id&key=${mapApiKey}`,
+    );
+    const placeIdData = await placeIdRes.json();
+    const placeId = placeIdData?.candidates?.[0]?.place_id;
+
+    if (!placeId) {
+      continue;
+    }
+
+    // Photo reference 取得
+    const photoRes = await fetch(
+      `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=photos&key=${mapApiKey}`,
+    );
+    const photoData = await photoRes.json();
+    const photoReference = photoData?.result?.photos?.[0]?.photo_reference;
+
+    if (!photoReference) {
+      continue;
+    }
+
+    // 画像URL生成（リダイレクト先URL）
+    const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReference}&key=${mapApiKey}`;
+
+    await prisma.place.update({
+      where: { id },
+      data: {
+        photo_name: photoUrl ?? 'null',
+      },
+    });
+    console.log(`${query},
+    place_id: ${placeId},
+    photo_url: ${photoUrl},`);
+  }
+
+  return c.text('ok');
 });
 
 app.put('/scale', async (c) => {
