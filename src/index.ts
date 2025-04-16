@@ -87,14 +87,37 @@ app.delete('/del', async (c) => {
   return c.json(place);
 });
 
-app.get('/get', async (c) => {
+app.get('/markers', async (c) => {
   const adapter = new PrismaD1(c.env.DB);
   const prisma = new PrismaClient({ adapter });
 
-  const place = await prisma.place.findMany();
-  console.log(place);
+  const latMin = Number(c.req.queries('latMin'));
+  const latMax = Number(c.req.queries('latMax'));
+  const lngMin = Number(c.req.queries('lngMin'));
+  const lngMax = Number(c.req.queries('lngMax'));
+  const scale = Number(c.req.queries('scale')); // これは今は使ってないけど必要なら使えるようにしておく！
 
-  return c.json(place);
+  if (isNaN(latMin) || isNaN(latMax) || isNaN(lngMin) || isNaN(lngMax)) {
+    return c.json({ error: 'Invalid query parameters' }, 400);
+  }
+
+  const places = await prisma.place.findMany({
+    where: {
+      latitude: {
+        gte: latMin,
+        lte: latMax,
+      },
+      longitude: {
+        gte: lngMin,
+        lte: lngMax,
+      },
+      scale: {
+        gte: scale,
+      },
+    },
+  });
+
+  return c.json(places);
 });
 
 app.put('/api/google/gemini', async (c) => {
@@ -190,6 +213,22 @@ app.put('/api/google/locations', async (c) => {
 
   const allResults: any[] = [];
   for (const place of places) {
+    let id = place.id;
+
+    if (place.title == '不明' && place.place == '不明') {
+      console.log(`Skipping place ID ${id} due to missing title or place`);
+      continue;
+    }
+
+    if (
+      !place.title ||
+      !place.place ||
+      place.title == 'null' ||
+      place.place == 'null'
+    ) {
+      console.log(`Skipping place ID ${id} due to missing title or place`);
+      continue;
+    }
     const response = await fetch(
       'https://places.googleapis.com/v1/places:searchText',
       {
@@ -207,17 +246,66 @@ app.put('/api/google/locations', async (c) => {
     );
 
     const data = await response.json();
-    console.log(`location: ${data.places[0].location}`);
-    const lat = data.places[0].location.latitude;
-    const lon = data.places[0].location.longitude;
-    console.log(`address: ${data.places[0].formattedAddress}`);
-    console.log(`lat: ${lat} lon : ${lon}`);
+    //
+    if (
+      data.places &&
+      Array.isArray(data.places) &&
+      data.places.length > 0 &&
+      data.places[0].location
+    ) {
+      const placeInfo = data.places[0];
+      const lat = placeInfo.location.latitude;
+      const lon = placeInfo.location.longitude;
+
+      console.log(`address: ${placeInfo.formattedAddress}`);
+      console.log(`lat: ${lat} lon : ${lon}`);
+
+      await prisma.place.update({
+        where: { id },
+        data: {
+          latitude: lat ?? null,
+          longitude: lon ?? null,
+          address: placeInfo.formattedAddress ?? null,
+        },
+      });
+    } else {
+      console.log(
+        `Skipping update for ID ${id} due to missing or invalid places data`,
+      );
+    }
+
     // const datas = JSON.stringify(data);
     // console.log(typeof datas);
 
     allResults.push(data);
   }
   return c.json({ allResults });
+});
+
+app.put('/scale', async (c) => {
+  const adapter = new PrismaD1(c.env.DB);
+  const prisma = new PrismaClient({ adapter });
+  const places = await prisma.place.findMany();
+
+  for (const place of places) {
+    let id = place.id;
+    const likes = place.likes ?? 0;
+
+    let scale = 1;
+    if (likes > 100_000) {
+      scale = 3;
+    } else if (likes > 10_000) {
+      scale = 2;
+    }
+
+    const data = await prisma.place.update({
+      where: { id },
+      data: { scale },
+    });
+
+    console.log(data);
+  }
+  return c.text('ok');
 });
 
 export default app;
