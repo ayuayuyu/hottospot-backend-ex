@@ -95,26 +95,35 @@ app.get('/markers', async (c) => {
   const latMax = Number(c.req.queries('latMax'));
   const lngMin = Number(c.req.queries('lngMin'));
   const lngMax = Number(c.req.queries('lngMax'));
-  const scale = Number(c.req.queries('scale')); // これは今は使ってないけど必要なら使えるようにしておく！
+  const scale = Number(c.req.queries('scale'));
+  const query = c.req.query('q');
 
-  if (isNaN(latMin) || isNaN(latMax) || isNaN(lngMin) || isNaN(lngMax)) {
+  if (
+    isNaN(latMin) ||
+    isNaN(latMax) ||
+    isNaN(lngMin) ||
+    isNaN(lngMax) ||
+    isNaN(scale)
+  ) {
     return c.json({ error: 'Invalid query parameters' }, 400);
   }
 
-  const places = await prisma.place.findMany({
-    where: {
-      latitude: {
-        gte: latMin,
-        lte: latMax,
-      },
-      longitude: {
-        gte: lngMin,
-        lte: lngMax,
-      },
-      scale: {
-        gte: scale,
-      },
+  const whereCondition: any = {
+    latitude: {
+      gte: latMin,
+      lte: latMax,
     },
+    longitude: {
+      gte: lngMin,
+      lte: lngMax,
+    },
+    scale: {
+      gte: scale,
+    },
+  };
+
+  const places = await prisma.place.findMany({
+    where: whereCondition,
   });
 
   return c.json(places);
@@ -278,7 +287,7 @@ app.put('/api/google/locations', async (c) => {
   return c.json({ allResults });
 });
 
-app.get('api/google/photo', async (c) => {
+app.put('api/google/photo', async (c) => {
   const adapter = new PrismaD1(c.env.DB);
   const prisma = new PrismaClient({ adapter });
   const places = await prisma.place.findMany();
