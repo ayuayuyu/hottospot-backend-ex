@@ -221,6 +221,9 @@ app.put('/api/google/locations', async (c) => {
       console.log(`Skipping place ID ${id} due to missing title or place`);
       continue;
     }
+    if (place.latitude && place.longitude && place.address) {
+      continue;
+    }
 
     if (
       !place.title ||
@@ -289,6 +292,9 @@ app.put('/api/google/photo', async (c) => {
     let id = place.id;
     if (place.title == '不明' && place.place == '不明') {
       console.log(`Skipping place ID ${id} due to missing title or place`);
+      continue;
+    }
+    if (place.photoName) {
       continue;
     }
 
@@ -391,13 +397,16 @@ app.put('/scale', async (c) => {
   const places = await prisma.place.findMany();
 
   for (const place of places) {
+    if (place.scale) {
+      continue;
+    }
     let id = place.id;
     const likes = place.likes ?? 0;
 
     let scale = 1;
-    if (likes > 100_000) {
+    if (likes > 1000000) {
       scale = 3;
-    } else if (likes > 10_000) {
+    } else if (likes > 100000) {
       scale = 2;
     }
 
