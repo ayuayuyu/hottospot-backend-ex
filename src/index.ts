@@ -354,6 +354,7 @@ app.get('/route', async (c) => {
   const lonOrigin = Number(c.req.queries('lonOrigin'));
   const latDestination = Number(c.req.queries('latDestination'));
   const lonDestination = Number(c.req.queries('lonDestination'));
+  const mode = String(c.req.queries('mode'));
 
   if (
     isNaN(latOrigin) ||
@@ -364,31 +365,34 @@ app.get('/route', async (c) => {
     return c.json({ error: 'Invalid query parameters' }, 400);
   }
 
-  const modes = ['driving', 'walking', 'bicycling', 'transit'];
+  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${latOrigin},${lonOrigin}&destinations=${latDestination},${lonDestination}&mode=${mode}&departure_time=now&key=${mapApiKey}`;
 
-  const results = await Promise.all(
-    modes.map(async (mode) => {
-      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${latOrigin},${lonOrigin}&destinations=${latDestination},${lonDestination}&mode=${mode}&departure_time=now&key=${mapApiKey}`;
+  const res = await fetch(url);
+  const route = await res.json();
 
-      const res = await fetch(url);
-      const route = await res.json();
+  const element = route.rows?.[0]?.elements?.[0];
 
-      const element = route.rows?.[0]?.elements?.[0];
+  if (element?.status !== 'OK') {
+    return { mode, error: element?.status || 'Unknown error' };
+  }
 
-      if (element?.status !== 'OK') {
-        return { mode, error: element?.status || 'Unknown error' };
-      }
+  const duration = {};
 
-      return {
-        mode,
-        distance: element.distance.text,
-        duration: element.duration.text,
-      };
-    }),
-  );
+  const durationText = element.duration?.text ?? '';
+  const hourMatch = durationText.match(/(\d+)\s*hour/);
+  const minsMatch = durationText.match(/(\d+)\s*mins/);
+
+  if (hourMatch) duration.hour = `${hourMatch[1]}時間`;
+  if (minsMatch) duration.mins = `${minsMatch[1]}分`;
+
+  const result = {
+    mode,
+    distance: element.distance.text,
+    duration,
+  };
 
   // return c.json({ distance: distance, duration: duration });
-  return c.json({ routes: results });
+  return c.json({ routes: result });
 });
 
 app.put('/scale', async (c) => {
@@ -399,6 +403,9 @@ app.put('/scale', async (c) => {
   for (const place of places) {
     let id = place.id;
     const likes = place.likes ?? 0;
+    if (id < 1000) {
+      continue;
+    }
 
     let scale = 1;
     if (likes > 1000000) {
