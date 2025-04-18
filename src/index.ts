@@ -397,9 +397,6 @@ app.put('/scale', async (c) => {
   const places = await prisma.place.findMany();
 
   for (const place of places) {
-    if (place.scale) {
-      continue;
-    }
     let id = place.id;
     const likes = place.likes ?? 0;
 
