@@ -15,25 +15,14 @@ const tiktokApiKey = process.env.TIKTOK_URL ?? '';
 app.use(
   '*',
   cors({
-    origin: '*', // 必要に応じて制限可能
+    origin: '*',
+    allowHeaders: ['*'],
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
+    exposeHeaders: ['*'],
   }),
 );
 
-app.get('/', (c) => c.text('Hono!'));
-
-app.get('/test', async (c) => {
-  const adapter = new PrismaD1(c.env.DB);
-  const prisma = new PrismaClient({ adapter });
-
-  const place = await prisma.place.create({
-    data: {
-      tiktokTitle: 'title',
-    },
-  });
-
-  return c.json(place);
-});
+app.get('/message', (c) => c.text('Hono!'));
 
 app.post('/api/tiktok', async (c) => {
   interface Tiktok {
@@ -47,34 +36,31 @@ app.post('/api/tiktok', async (c) => {
     created_at: string;
   }
 
-  const keywords = ['カフェ', '観光', '遊び場'];
+  const word = '東京';
+
   const allResults: Tiktok[] = [];
   const adapter = new PrismaD1(c.env.DB);
   const prisma = new PrismaClient({ adapter });
 
-  for (const key of keywords) {
-    const url = `${tiktokApiKey}/get?q=${key}`;
-    const response = await fetch(url);
-    const body = (await response.json()) as Tiktok[];
+  const url = `${tiktokApiKey}/get?q=${word}`;
+  const res = await fetch(url);
+  const body = (await res.json()) as Tiktok[];
 
-    for (const tiktok of body) {
-      const place = await prisma.place.create({
-        data: {
-          tiktokTitle: tiktok.title,
-          likes: tiktok.likes,
-          views: tiktok.views,
-          userName: tiktok.userName,
-          tags: JSON.stringify(tiktok.tags),
-          url: tiktok.url,
-        },
-      });
-      console.log(place);
-    }
-
-    allResults.push(...body);
+  for (const tiktok of body) {
+    const place = await prisma.place.create({
+      data: {
+        tiktokTitle: tiktok.title,
+        likes: tiktok.likes,
+        views: tiktok.views,
+        userName: tiktok.userName,
+        tags: JSON.stringify(tiktok.tags),
+        url: tiktok.url,
+      },
+    });
+    console.log(place);
   }
 
-  return c.json(allResults);
+  return c.json(body);
 });
 
 //placeを全て削除する
@@ -122,6 +108,10 @@ app.get('/markers', async (c) => {
     },
   };
 
+  if (query) {
+    whereCondition.OR = [{ tags: { contains: query } }];
+  }
+
   const places = await prisma.place.findMany({
     where: whereCondition,
   });
@@ -142,6 +132,9 @@ app.put('/api/google/gemini', async (c) => {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     for (const place of places) {
+      if (place.title && place.place && place.explanation) {
+        continue;
+      }
       let id = place.id;
       console.log(`id: ${id}`);
       const prompt = `
@@ -287,7 +280,7 @@ app.put('/api/google/locations', async (c) => {
   return c.json({ allResults });
 });
 
-app.put('api/google/photo', async (c) => {
+app.put('/api/google/photo', async (c) => {
   const adapter = new PrismaD1(c.env.DB);
   const prisma = new PrismaClient({ adapter });
   const places = await prisma.place.findMany();
@@ -348,6 +341,48 @@ app.put('api/google/photo', async (c) => {
   }
 
   return c.text('ok');
+});
+
+app.get('/route', async (c) => {
+  const latOrigin = Number(c.req.queries('latOrigin'));
+  const lonOrigin = Number(c.req.queries('lonOrigin'));
+  const latDestination = Number(c.req.queries('latDestination'));
+  const lonDestination = Number(c.req.queries('lonDestination'));
+
+  if (
+    isNaN(latOrigin) ||
+    isNaN(lonOrigin) ||
+    isNaN(latDestination) ||
+    isNaN(lonDestination)
+  ) {
+    return c.json({ error: 'Invalid query parameters' }, 400);
+  }
+
+  const modes = ['driving', 'walking', 'bicycling', 'transit'];
+
+  const results = await Promise.all(
+    modes.map(async (mode) => {
+      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${latOrigin},${lonOrigin}&destinations=${latDestination},${lonDestination}&mode=${mode}&departure_time=now&key=${mapApiKey}`;
+
+      const res = await fetch(url);
+      const route = await res.json();
+
+      const element = route.rows?.[0]?.elements?.[0];
+
+      if (element?.status !== 'OK') {
+        return { mode, error: element?.status || 'Unknown error' };
+      }
+
+      return {
+        mode,
+        distance: element.distance.text,
+        duration: element.duration.text,
+      };
+    }),
+  );
+
+  // return c.json({ distance: distance, duration: duration });
+  return c.json({ routes: results });
 });
 
 app.put('/scale', async (c) => {
